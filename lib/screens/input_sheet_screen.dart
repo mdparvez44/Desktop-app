@@ -2,10 +2,12 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/production.dart';
 import '../providers/production_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/calculation_service.dart';
 import '../utils/constants.dart';
 import '../widgets/machine_selector.dart';
@@ -49,20 +51,23 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
   bool _isSaving = false;
 
   String _formatQAForInput(double savedQA) {
+    final qcConstant = Provider.of<SettingsProvider>(context, listen: false).qcConstant;
     if (savedQA == 0) return '';
-    if (savedQA % 95 == 0) {
-      return (savedQA / 95.0).toInt().toString();
+    if (savedQA % qcConstant == 0) {
+      return (savedQA / qcConstant).toInt().toString();
     }
-    return savedQA.toString();
+    return (savedQA / qcConstant).toString();
   }
 
   @override
   void initState() {
     super.initState();
     final p = widget.editingRecord;
-    _machine = p?.machine ?? AppConstants.defaultMachines.first;
-    _plant = p?.plant ?? AppConstants.defaultPlants.first;
-    _productCode = p?.productCode ?? AppConstants.productCodes.first;
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+
+    _machine = p?.machine ?? (settings.machines.isNotEmpty ? settings.machines.first : AppConstants.defaultMachines.first);
+    _plant = p?.plant ?? (settings.plants.isNotEmpty ? settings.plants.first : AppConstants.defaultPlants.first);
+    _productCode = p?.productCode ?? (settings.productCodes.isNotEmpty ? settings.productCodes.first : AppConstants.productCodes.first);
     _shift = p?.shift ?? 'Night';
 
     if (p != null) {
@@ -116,8 +121,11 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
   double get _qaInputVal => double.tryParse(_qaController.text.trim()) ?? 0.0;
   double get _sampleVal => double.tryParse(_sampleController.text.trim()) ?? 0.0;
 
-  /// Saved Q.C = Entered Q.C x 95
-  double get _savedQA => _qaInputVal * 95.0;
+  /// Saved Q.C = Entered Q.C x qcConstant
+  double get _savedQA {
+    final qcConstant = Provider.of<SettingsProvider>(context, listen: false).qcConstant;
+    return _qaInputVal * qcConstant;
+  }
 
   /// Tested = Good + Reject + Saved Q.C (Samples NOT included in Tested!)
   double get _currentTested => CalculationService.calculateTested(
@@ -192,6 +200,16 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
         // Keep Machine, Product Code, and Plant selected
         widget.onClearEditing?.call();
       });
+    } else if (mounted) {
+      final errorMsg = prodProvider.errorMessage ?? 'Failed to save production data.';
+      debugPrint('SAVE FAILED: $errorMsg');
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
 
     setState(() => _isSaving = false);
@@ -204,9 +222,14 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
     final theme = Theme.of(context);
     final prodProvider = Provider.of<ProductionProvider>(context);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): _handleSaveRecord,
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _handleSaveRecord,
+      },
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Page Header
@@ -310,6 +333,42 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
                     currentTotal: _currentTested,
                     previousTotal: _previousTotal,
                   ),
+                  const SizedBox(height: 20),
+
+                  // 5. SAVE BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      key: const Key('save_production_button'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      onPressed: _isSaving ? null : _handleSaveRecord,
+                      icon: _isSaving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.save_rounded, size: 24),
+                      label: Text(
+                        _isSaving ? 'Saving Production Data...' : 'Save Production Data (Enter / Ctrl+S)',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -348,6 +407,7 @@ class _InputSheetScreenState extends State<InputSheetScreen> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

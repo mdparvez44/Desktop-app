@@ -1,7 +1,6 @@
 // Dedicated Data Sheet Screen displaying production database records with edit, delete, delete all, and automatic shift-based XLSX export.
 library;
 
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -192,15 +191,17 @@ class DataSheetScreen extends StatelessWidget {
       final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
       final customSaveLocation = settingsProvider.customSaveLocation;
 
-      final exportFile = await ExcelService.exportProductionData(
+      final exportPath = await ExcelService.exportProductionData(
         shift: shift,
         date: DateTime.now(),
         records: records,
         targetDirectory: customSaveLocation,
       );
 
-      final fileName = exportFile.path.split(Platform.pathSeparator).last;
-      final fullPath = exportFile.path;
+      final fullPath = exportPath ?? 'Downloads';
+      final fileName = fullPath.contains('/') || fullPath.contains('\\')
+          ? fullPath.split(RegExp(r'[/\\]')).last
+          : fullPath;
 
       if (context.mounted) {
         showDialog(
@@ -332,26 +333,29 @@ class DataSheetScreen extends StatelessWidget {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
+        withData: true,
       );
 
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path!;
-        final fileName = result.files.single.name;
-        final bytes = await File(filePath).readAsBytes();
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.single;
+        final fileName = file.name;
+        final bytes = file.bytes;
 
-        final importResult = await prodProvider.importExcel(bytes, fileName: fileName);
+        if (bytes != null) {
+          final importResult = await prodProvider.importExcel(bytes, fileName: fileName);
 
-        if (importResult.validRecords.isNotEmpty) {
-          if (context.mounted) {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
+          if (importResult.validRecords.isNotEmpty) {
+            if (context.mounted) {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Successfully imported ${importResult.validRecords.length} records.'),
+                  backgroundColor: Colors.teal,
+                ),
+              );
             }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Successfully imported ${importResult.validRecords.length} records.'),
-                backgroundColor: Colors.teal,
-              ),
-            );
           }
         }
       }

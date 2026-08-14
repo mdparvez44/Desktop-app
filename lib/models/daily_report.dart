@@ -99,6 +99,7 @@ class PlantWiseDailyReportRow {
 
 /// Product Code Wise aggregated row model
 class ProductWiseDailyReportRow {
+  final String plant;
   final String productCode;
   final double testedGross;
   final double goodGross;
@@ -106,12 +107,16 @@ class ProductWiseDailyReportRow {
   final double totalQCGross;
 
   ProductWiseDailyReportRow({
+    this.plant = '',
     required this.productCode,
     required this.testedGross,
     required this.goodGross,
     required this.rejectionGross,
     required this.totalQCGross,
   });
+
+  /// Format display label: Prefix 'TTK ' when plant is TTK, otherwise raw productCode
+  String get displayProductCode => plant == 'TTK' ? 'TTK $productCode' : productCode;
 
   double get rejectionPercentage {
     if (testedGross <= 0) return 0.0;

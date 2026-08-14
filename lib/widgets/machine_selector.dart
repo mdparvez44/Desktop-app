@@ -2,7 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
-import '../utils/constants.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 import '../utils/natural_sort.dart';
 
 class MachineSelector extends StatelessWidget {
@@ -30,19 +31,24 @@ class MachineSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final machines = List<String>.from(AppConstants.defaultMachines);
+    final settingsProvider = Provider.of<SettingsProvider>(context);
+    final machines = List<String>.from(settingsProvider.machines);
+
     if (!machines.contains(selectedMachine) && selectedMachine.isNotEmpty) {
       machines.add(selectedMachine);
     }
     machines.sortNaturally();
 
-    final activeMachine = machines.contains(selectedMachine) ? selectedMachine : machines.first;
+    final activeMachine = machines.contains(selectedMachine)
+        ? selectedMachine
+        : (machines.isNotEmpty ? machines.first : '');
 
     return Row(
       children: [
         Expanded(
           child: DropdownButtonFormField<String>(
-            initialValue: activeMachine,
+            key: ValueKey(activeMachine),
+            initialValue: activeMachine.isNotEmpty ? activeMachine : null,
             decoration: const InputDecoration(
               labelText: 'M.No (Machine)',
               prefixIcon: Icon(Icons.precision_manufacturing_outlined),
@@ -122,12 +128,14 @@ class MachineSelector extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final newId = textController.text.trim().toUpperCase();
               if (newId.isNotEmpty) {
+                final settingsProvider = Provider.of<SettingsProvider>(context, listen: false);
+                await settingsProvider.addMachine(newId);
                 onChanged(newId);
               }
-              Navigator.pop(ctx);
+              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('Add'),
           ),

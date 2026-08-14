@@ -1,15 +1,16 @@
-/// Excel Import and Export Service using package:excel.
+/// Excel Import and Export Service using package:excel with cross-platform file saving.
 library;
 
-import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../models/daily_report.dart';
 import '../models/plant_product_report.dart';
 import '../models/production.dart';
 import '../utils/formatters.dart';
+import 'file_saver_stub.dart'
+    if (dart.library.io) 'file_saver_io.dart'
+    if (dart.library.js_interop) 'file_saver_web.dart';
 
 class ExcelImportResult {
   final List<Production> validRecords;
@@ -72,62 +73,24 @@ class ExcelService {
     return '${shift}_$dateStr.xlsx';
   }
 
-  /// Resolves the user's system Downloads directory dynamically (Linux / Windows)
+  /// Handles duplicate filenames safely on target platform
+  static dynamic getUniqueExportFile(String savePath, String shift, DateTime date) {
+    return getUniqueExportFileImpl(savePath, shift, date);
+  }
+
+  /// Resolves system Downloads directory path on Desktop/Mobile, or returns placeholder on Web
   static Future<String> getDownloadsDirectoryPath() async {
-    try {
-      final downloadsDir = await getDownloadsDirectory();
-      if (downloadsDir != null && await downloadsDir.exists()) {
-        return downloadsDir.path;
-      }
-    } catch (_) {}
-
-    // Dynamic system fallback for Linux ($HOME/Downloads) & Windows (%USERPROFILE%\Downloads)
-    final userHome = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
-    if (userHome.isNotEmpty) {
-      final fallbackDownloads = p.join(userHome, 'Downloads');
-      final dir = Directory(fallbackDownloads);
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
-      return dir.path;
-    }
-
-    final appDocDir = await getApplicationDocumentsDirectory();
-    return appDocDir.path;
+    return await getDownloadsDirectoryPathImpl();
   }
 
-  /// Handles duplicate filenames safely by auto-incrementing: Shift_D-M-YYYY (1).xlsx
-  static File getUniqueExportFile(String savePath, String shift, DateTime date) {
-    final baseName = '${shift}_${date.day}-${date.month}-${date.year}';
-    String targetPath = p.join(savePath, '$baseName.xlsx');
-    File file = File(targetPath);
-
-    int counter = 1;
-    while (file.existsSync()) {
-      targetPath = p.join(savePath, '$baseName ($counter).xlsx');
-      file = File(targetPath);
-      counter++;
-    }
-    return file;
-  }
-
-  /// Automatically exports production data to configured or Downloads folder without save dialog
-  static Future<File> exportProductionData({
+  /// Automatically exports production data to configured location or downloads folder
+  static Future<String?> exportProductionData({
     required String shift,
     required DateTime date,
     required List<Production> records,
     String? targetDirectory,
   }) async {
-    final savePath = (targetDirectory != null && targetDirectory.isNotEmpty && Directory(targetDirectory).existsSync())
-        ? targetDirectory
-        : await getDownloadsDirectoryPath();
-
-    if (!Directory(savePath).existsSync()) {
-      throw Exception('Export Save Location Unavailable: The configured folder "$savePath" does not exist.');
-    }
-
-    final file = getUniqueExportFile(savePath, shift, date);
-
+    final fileName = generateExportFileName(shift, date);
     final shiftRecords = records.where((r) => r.shift.toLowerCase() == shift.toLowerCase()).toList();
     final exportRecords = shiftRecords.isNotEmpty ? shiftRecords : records;
 
@@ -141,8 +104,11 @@ class ExcelService {
       throw Exception('Failed to generate Excel file bytes.');
     }
 
-    await file.writeAsBytes(bytes);
-    return file;
+    return await saveAndDownloadFile(
+      bytes: bytes,
+      fileName: fileName,
+      targetDirectory: targetDirectory,
+    );
   }
 
   /// Export Production Data Sheet records with shift & date metadata header rows
@@ -343,19 +309,60 @@ class ExcelService {
     return excel.save();
   }
 
-  /// Export records directly to a target file path
-  static Future<void> exportToFile(
+  /// Export records directly to a target file path or browser download
+  static Future<String?> exportToFile(
     List<Production> records,
     String filePath, {
     String? sheetName,
   }) async {
     final bytes = exportToBytes(records, sheetName: sheetName);
     if (bytes != null) {
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
+      final fileName = p.basename(filePath);
+      return await saveAndDownloadFile(
+        bytes: bytes,
+        fileName: fileName,
+        targetDirectory: p.dirname(filePath),
+      );
     } else {
       throw Exception('Failed to generate Excel file bytes.');
     }
+  }
+
+  static String _extractCellString(Data? cell) {
+    if (cell == null || cell.value == null) return '';
+    final val = cell.value;
+    if (val is TextCellValue) {
+      return val.value.text?.trim() ?? '';
+    }
+    if (val is IntCellValue) {
+      return val.value.toString().trim();
+    }
+    if (val is DoubleCellValue) {
+      return val.value.toString().trim();
+    }
+    final str = val.toString();
+    final match = RegExp(r'^(?:TextCellValue|IntCellValue|DoubleCellValue|SharedStringCellValue)\((.*)\)$').firstMatch(str);
+    if (match != null) {
+      return match.group(1)?.trim() ?? '';
+    }
+    return str.trim();
+  }
+
+  static double _extractCellDouble(Data? cell) {
+    if (cell == null || cell.value == null) return 0.0;
+    final val = cell.value;
+    if (val is DoubleCellValue) {
+      return val.value;
+    }
+    if (val is IntCellValue) {
+      return val.value.toDouble();
+    }
+    if (val is TextCellValue) {
+      final t = val.value.text?.trim() ?? '';
+      return double.tryParse(t) ?? 0.0;
+    }
+    final str = _extractCellString(cell);
+    return double.tryParse(str) ?? 0.0;
   }
 
   /// Import production records from Excel bytes with strict validation and optional filename date/shift metadata
@@ -383,47 +390,134 @@ class ExcelService {
       );
     }
 
-    // Process each row skipping header (row 0)
-    for (int i = 1; i < table.maxRows; i++) {
+    // Auto-detect header row index and metadata rows (Shift: X, Date: Y)
+    int headerRowIndex = -1;
+    String? sheetShift;
+    DateTime? sheetDate;
+
+    for (int i = 0; i < table.maxRows && i < 10; i++) {
       final row = table.rows[i];
       if (row.isEmpty) continue;
 
-      String getCellString(int index) {
-        if (index >= row.length || row[index] == null) return '';
-        final val = row[index]?.value;
-        if (val == null) return '';
-        return val.toString().trim();
+      for (final cell in row) {
+        final val = _extractCellString(cell);
+        final valLower = val.toLowerCase();
+
+        if (valLower.startsWith('shift:')) {
+          final s = val.substring(6).trim().toLowerCase();
+          if (s == 'first') sheetShift = 'First';
+          if (s == 'second') sheetShift = 'Second';
+          if (s == 'night') sheetShift = 'Night';
+        } else if (valLower.startsWith('date:')) {
+          final dStr = val.substring(5).trim();
+          final parts = dStr.split('-');
+          if (parts.length >= 3) {
+            final day = int.tryParse(parts[0].trim());
+            final month = int.tryParse(parts[1].trim());
+            final year = int.tryParse(parts[2].trim());
+            if (day != null && month != null && year != null) {
+              sheetDate = DateTime(year, month, day);
+            }
+          }
+        }
+
+        if (valLower.contains('m.no') || valLower.contains('machine') || valLower.contains('product code')) {
+          headerRowIndex = i;
+          break;
+        }
+      }
+      if (headerRowIndex >= 0) break;
+    }
+
+    if (headerRowIndex < 0) {
+      headerRowIndex = 0;
+    }
+
+    final effectiveShift = overrideShift ?? sheetShift;
+    final effectiveDate = overrideDate ?? sheetDate;
+
+    // Dynamic column mapping based on header names
+    int machineCol = -1;
+    int plantCol = -1;
+    int productCol = -1;
+    int goodCol = -1;
+    int rejectCol = -1;
+    int qaCol = -1;
+    int sampleCol = -1;
+    int shiftCol = -1;
+    int dateCol = -1;
+
+    if (headerRowIndex < table.maxRows) {
+      final headerRow = table.rows[headerRowIndex];
+      for (int c = 0; c < headerRow.length; c++) {
+        final colName = _extractCellString(headerRow[c]).toLowerCase();
+        if (colName.contains('m.no') || colName.contains('machine')) {
+          machineCol = c;
+        } else if (colName.contains('plant')) {
+          plantCol = c;
+        } else if (colName.contains('product')) {
+          productCol = c;
+        } else if (colName.contains('good')) {
+          goodCol = c;
+        } else if (colName.contains('rej')) {
+          rejectCol = c;
+        } else if (colName.contains('q.c') || colName.contains('qa') || colName.contains('q.a')) {
+          qaCol = c;
+        } else if (colName.contains('sample')) {
+          sampleCol = c;
+        } else if (colName.contains('shift')) {
+          shiftCol = c;
+        } else if (colName.contains('date') || colName.contains('time')) {
+          dateCol = c;
+        }
+      }
+    }
+
+    // Fallbacks if columns were not mapped by header names
+    int offset = 0;
+    if (machineCol == -1) {
+      if (headerRowIndex < table.maxRows && table.rows[headerRowIndex].isNotEmpty) {
+        final col0Name = _extractCellString(table.rows[headerRowIndex][0]).toLowerCase();
+        if (col0Name == 'id' || int.tryParse(col0Name) != null) offset = 1;
+      }
+      machineCol = 0 + offset;
+      plantCol = 1 + offset;
+      productCol = 2 + offset;
+      goodCol = 3 + offset;
+      rejectCol = 4 + offset;
+      qaCol = 5 + offset;
+      sampleCol = 6 + offset;
+      shiftCol = 8 + offset;
+      dateCol = 9 + offset;
+    }
+
+    // Process each row skipping headers up to headerRowIndex
+    for (int i = headerRowIndex + 1; i < table.maxRows; i++) {
+      final row = table.rows[i];
+      if (row.isEmpty) continue;
+
+      String getCellString(int colIdx) {
+        if (colIdx < 0 || colIdx >= row.length) return '';
+        return _extractCellString(row[colIdx]);
       }
 
-      double getCellDouble(int index) {
-        if (index >= row.length || row[index] == null) return 0.0;
-        final val = row[index]?.value;
-        if (val == null) return 0.0;
-        if (val is DoubleCellValue) return val.value;
-        if (val is IntCellValue) return val.value.toDouble();
-        final str = val.toString().trim();
-        return double.tryParse(str) ?? 0.0;
+      double getCellDouble(int colIdx) {
+        if (colIdx < 0 || colIdx >= row.length) return 0.0;
+        return _extractCellDouble(row[colIdx]);
       }
 
-      int offset = 0;
-      final col0 = getCellString(0);
-      if (int.tryParse(col0) != null) {
-        offset = 1;
-      }
-
-      final machine = getCellString(0 + offset);
-      final plant = getCellString(1 + offset);
-      final productCode = getCellString(2 + offset);
-      final good = getCellDouble(3 + offset);
-      final reject = getCellDouble(4 + offset);
-      final qa = getCellDouble(5 + offset);
-      final sample = getCellDouble(6 + offset);
-      final shift = overrideShift ??
-          (getCellString(8 + offset).isEmpty ? 'Night' : getCellString(8 + offset));
-      final dateStr = getCellString(9 + offset);
+      final machine = getCellString(machineCol);
+      final plant = getCellString(plantCol);
+      final productCode = getCellString(productCol);
+      final good = getCellDouble(goodCol);
+      final reject = getCellDouble(rejectCol);
+      final qa = getCellDouble(qaCol);
+      final sample = getCellDouble(sampleCol);
+      final shiftStr = getCellString(shiftCol);
+      final shift = effectiveShift ?? (shiftStr.isEmpty ? 'Night' : shiftStr);
+      final dateStr = getCellString(dateCol);
 
       if (machine.isEmpty) {
-        errors.add('Row ${i + 1}: Missing machine name.');
         continue;
       }
       if (plant.isEmpty) {
@@ -435,9 +529,19 @@ class ExcelService {
         continue;
       }
 
-      DateTime parsedDate = overrideDate ?? DateTime.now();
-      if (overrideDate == null && dateStr.isNotEmpty) {
-        parsedDate = DateTime.tryParse(dateStr) ?? DateTime.now();
+      DateTime parsedDate = effectiveDate ?? DateTime.now();
+      if (effectiveDate == null && dateStr.isNotEmpty) {
+        final parts = dateStr.split('-');
+        if (parts.length >= 3) {
+          final d = int.tryParse(parts[0].trim());
+          final m = int.tryParse(parts[1].trim());
+          final y = int.tryParse(parts[2].trim());
+          if (d != null && m != null && y != null) {
+            parsedDate = DateTime(y, m, d);
+          }
+        } else {
+          parsedDate = DateTime.tryParse(dateStr) ?? DateTime.now();
+        }
       }
 
       final record = Production(
@@ -461,25 +565,9 @@ class ExcelService {
       errors: errors,
     );
   }
+}
 
-  /// Import records from a local file path with automatic filename shift/date extraction
-  static Future<ExcelImportResult> importFromFile(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) {
-      return ExcelImportResult(
-        validRecords: [],
-        errors: ['File does not exist at: $filePath'],
-      );
-    }
-    final bytes = await file.readAsBytes();
-    final parsed = parseShiftAndDateFromFileName(p.basename(filePath));
-    final overrideShift = parsed != null ? parsed['shift'] as String : null;
-    final overrideDate = parsed != null ? parsed['date'] as DateTime : null;
-
-    return importFromBytes(
-      bytes,
-      overrideShift: overrideShift,
-      overrideDate: overrideDate,
-    );
-  }
+/// Helper function to access getDownloadsDirectoryPath implementation
+Future<String> getDownloadsDirectoryPathImpl() async {
+  return await getDownloadsDirectoryPath();
 }

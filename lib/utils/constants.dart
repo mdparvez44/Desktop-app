@@ -74,4 +74,21 @@ class AppConstants {
     'Day',
     'Night',
   ];
+
+  /// Default Rejection Options
+  static const List<String> defaultRejectionOptions = [
+    '0.21',
+    '3',
+    '3.4',
+    'CSTM',
+  ];
+
+  /// Default Good Options
+  static const List<String> defaultGoodOptions = [
+    '0.1',
+    'CSTM',
+  ];
+
+  /// Default Q.C Constant
+  static const double defaultQCConstant = 95.0;
 }

@@ -47,11 +47,25 @@ class CalculationService {
     return result;
   }
 
-  /// Compute machine series gross summary from list of production records (A1..M2)
-  static MachineGrossSummary computeMachineGrossSummary(List<Production> records) {
-    final Map<String, double> map = {};
+  /// Compute machine series gross summary from list of production records
+  static MachineGrossSummary computeMachineGrossSummary(
+    List<Production> records, [
+    List<String>? configuredMachines,
+  ]) {
+    final List<String> machines = List<String>.from(
+      configuredMachines ?? AppConstants.defaultMachines,
+    );
 
-    for (final machine in AppConstants.defaultMachines) {
+    // Also include any machines present in historical records
+    for (final r in records) {
+      if (!machines.contains(r.machine) && r.machine.isNotEmpty) {
+        machines.add(r.machine);
+      }
+    }
+    machines.sortNaturally();
+
+    final Map<String, double> map = {};
+    for (final machine in machines) {
       map[machine] = 0.0;
     }
 
@@ -60,7 +74,7 @@ class CalculationService {
     }
 
     final List<MachineGrossReportRow> rows = [];
-    for (final machine in AppConstants.defaultMachines) {
+    for (final machine in machines) {
       rows.add(
         MachineGrossReportRow(
           machine: machine,
@@ -73,8 +87,11 @@ class CalculationService {
   }
 
   /// Alias for computeMachineGrossSummary
-  static MachineGrossSummary computeMachineGrossReport(List<Production> records) {
-    return computeMachineGrossSummary(records);
+  static MachineGrossSummary computeMachineGrossReport(
+    List<Production> records, [
+    List<String>? configuredMachines,
+  ]) {
+    return computeMachineGrossSummary(records, configuredMachines);
   }
 
   /// Compute overall summary (Totals) from list of production records
@@ -199,26 +216,47 @@ class CalculationService {
     return rows;
   }
 
-  /// Compute Product Code Wise Daily Report grouping by Product Code only
+  /// Compute Product Code Wise Daily Report: Merges Company Plants (A..G) by Product Code, keeps TTK separate
   static List<ProductWiseDailyReportRow> computeProductWiseDailyReport(List<Production> records) {
     final Map<String, _DailyAcc> map = {};
 
     for (final r in records) {
-      final acc = map.putIfAbsent(r.productCode, () => _DailyAcc());
+      final isTTK = r.plant == 'TTK';
+      final groupKey = isTTK ? 'TTK|${r.productCode}' : r.productCode;
+
+      final acc = map.putIfAbsent(groupKey, () {
+        final a = _DailyAcc();
+        a.plant = isTTK ? 'TTK' : 'COMPANY';
+        a.productCode = r.productCode;
+        return a;
+      });
+
       acc.good += r.good;
       acc.reject += r.reject;
       acc.qa += r.qa;
     }
 
-    final sortedProducts = map.keys.toList()..sort(compareNatural);
+    final sortedKeys = map.keys.toList()..sort((a, b) {
+      final accA = map[a]!;
+      final accB = map[b]!;
+
+      // Company products first, TTK second
+      if (accA.plant != accB.plant) {
+        if (accA.plant == 'COMPANY') return -1;
+        if (accB.plant == 'COMPANY') return 1;
+      }
+      return compareNatural(accA.productCode, accB.productCode);
+    });
+
     final List<ProductWiseDailyReportRow> rows = [];
 
-    for (final prod in sortedProducts) {
-      final acc = map[prod]!;
+    for (final key in sortedKeys) {
+      final acc = map[key]!;
       final testedQty = acc.good + acc.reject + acc.qa;
       rows.add(
         ProductWiseDailyReportRow(
-          productCode: prod,
+          plant: acc.plant,
+          productCode: acc.productCode,
           testedGross: truncateTo2(testedQty / 144.0),
           goodGross: truncateTo2(acc.good / 144.0),
           rejectionGross: truncateTo2(acc.reject / 144.0),
@@ -291,6 +329,8 @@ class _DailyAccWithProducts {
 }
 
 class _DailyAcc {
+  String plant = '';
+  String productCode = '';
   double good = 0.0;
   double reject = 0.0;
   double qa = 0.0;

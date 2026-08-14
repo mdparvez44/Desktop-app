@@ -1,7 +1,3 @@
-/// Screen displaying the Daily Report with Machine Series, Plant Wise, and Product Code Wise view modes and WhatsApp Report Sharing.
-library;
-
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +7,9 @@ import '../models/production.dart';
 import '../providers/production_provider.dart';
 import '../services/calculation_service.dart';
 import '../services/excel_service.dart';
+import '../services/file_saver_stub.dart'
+    if (dart.library.io) '../services/file_saver_io.dart'
+    if (dart.library.js_interop) '../services/file_saver_web.dart';
 import '../services/report_formatter_service.dart';
 import '../utils/formatters.dart';
 import '../utils/truncate_utils.dart';
@@ -346,7 +345,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
         ...rows.map((r) {
           return DataRow(
             cells: [
-              DataCell(Text(r.productCode, style: const TextStyle(fontWeight: FontWeight.bold))),
+              DataCell(Text(r.displayProductCode, style: const TextStyle(fontWeight: FontWeight.bold))),
               DataCell(Text(AppFormatters.formatNumber(r.testedGross))),
               DataCell(Text(AppFormatters.formatNumber(r.goodGross))),
               DataCell(Text(AppFormatters.formatNumber(r.rejectionGross))),
@@ -537,22 +536,19 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
   Future<void> _exportDailyReport(BuildContext context, DailyReportSummary summary) async {
     try {
       final now = DateTime.now();
-      final downloadsPath = await ExcelService.getDownloadsDirectoryPath();
-      final baseName = 'DailyReport_${now.day}-${now.month}-${now.year}';
-      String targetPath = '$downloadsPath${Platform.pathSeparator}$baseName.xlsx';
-      File targetFile = File(targetPath);
-
-      int counter = 1;
-      while (targetFile.existsSync()) {
-        targetPath = '$downloadsPath${Platform.pathSeparator}$baseName ($counter).xlsx';
-        targetFile = File(targetPath);
-        counter++;
-      }
-
       final bytes = ExcelService.exportDailyReportToBytes(summary, now);
       if (bytes != null) {
-        await targetFile.writeAsBytes(bytes);
-        final fileName = targetPath.split(Platform.pathSeparator).last;
+        final dateStr = '${now.day}-${now.month}-${now.year}';
+        final fileName = 'DailyReport_$dateStr.xlsx';
+        final exportPath = await saveAndDownloadFile(
+          bytes: bytes,
+          fileName: fileName,
+        );
+
+        final fullPath = exportPath ?? fileName;
+        final displayName = fullPath.contains('/') || fullPath.contains('\\')
+            ? fullPath.split(RegExp(r'[/\\]')).last
+            : fullPath;
 
         if (context.mounted) {
           showDialog(
@@ -574,14 +570,14 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                     const Text('File saved as:', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     SelectableText(
-                      fileName,
+                      displayName,
                       style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                     const SizedBox(height: 12),
                     const Text('Location:', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     SelectableText(
-                      targetPath,
+                      fullPath,
                       style: TextStyle(
                         fontFamily: 'monospace',
                         color: Theme.of(context).colorScheme.onSurfaceVariant,

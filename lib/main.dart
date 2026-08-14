@@ -1,31 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'database/database_init_stub.dart'
+    if (dart.library.io) 'database/database_init_io.dart'
+    if (dart.library.js_interop) 'database/database_init_web.dart';
 import 'providers/production_provider.dart';
 import 'providers/settings_provider.dart';
 import 'screens/home_screen.dart';
 import 'utils/constants.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize SQLite for Desktop (Linux & Windows)
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  // Initialize SQLite for target platform (Desktop, Mobile, Web)
+  getPlatformDatabaseFactory();
 
-  runApp(const ETCalculatorApp());
+  // Pre-load SharedPreferences before UI boot to prevent settings race conditions
+  final prefs = await SharedPreferences.getInstance();
+
+  runApp(ETCalculatorApp(prefs: prefs));
 }
 
 class ETCalculatorApp extends StatelessWidget {
-  const ETCalculatorApp({super.key});
+  final SharedPreferences prefs;
+
+  const ETCalculatorApp({super.key, required this.prefs});
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ProductionProvider()),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
       ],
       child: Consumer<SettingsProvider>(
         builder: (context, settingsProvider, child) {

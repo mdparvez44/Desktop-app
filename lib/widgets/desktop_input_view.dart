@@ -3,7 +3,9 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../models/production.dart';
+import '../providers/settings_provider.dart';
 import '../services/calculation_service.dart';
 import '../utils/formatters.dart';
 import 'machine_selector.dart';
@@ -52,15 +54,24 @@ class _DesktopInputViewState extends State<DesktopInputView> {
   void initState() {
     super.initState();
     final p = widget.initialRecord;
-    _machine = p?.machine ?? 'A1';
-    _plant = p?.plant ?? 'TTK';
-    _productCode = p?.productCode ?? 'N53PM';
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final qcConstant = settings.qcConstant;
+
+    _machine = p?.machine ?? (settings.machines.isNotEmpty ? settings.machines.first : 'A1');
+    _plant = p?.plant ?? (settings.plants.isNotEmpty ? settings.plants.first : 'TTK');
+    _productCode = p?.productCode ?? (settings.productCodes.isNotEmpty ? settings.productCodes.first : 'N53PM');
     _shift = p?.shift ?? 'Night';
 
-    _goodController = TextEditingController(text: p != null ? p.good.toString() : '0');
-    _rejectController = TextEditingController(text: p != null ? p.reject.toString() : '0');
-    _qaController = TextEditingController(text: p != null ? p.qa.toString() : '0');
-    _sampleController = TextEditingController(text: p != null ? p.sample.toString() : '0');
+    String formatQA(double savedQA) {
+      if (savedQA == 0) return '0';
+      if (savedQA % qcConstant == 0) return (savedQA / qcConstant).toInt().toString();
+      return (savedQA / qcConstant).toString();
+    }
+
+    _goodController = TextEditingController(text: p != null ? (p.good == 0 ? '0' : p.good.toString()) : '0');
+    _rejectController = TextEditingController(text: p != null ? (p.reject == 0 ? '0' : p.reject.toString()) : '0');
+    _qaController = TextEditingController(text: p != null ? formatQA(p.qa) : '0');
+    _sampleController = TextEditingController(text: p != null ? (p.sample == 0 ? '0' : p.sample.toString()) : '0');
 
     _updateCalculations();
   }
@@ -79,12 +90,14 @@ class _DesktopInputViewState extends State<DesktopInputView> {
   }
 
   void _updateCalculations() {
+    final qcConstant = Provider.of<SettingsProvider>(context, listen: false).qcConstant;
     final good = double.tryParse(_goodController.text) ?? 0.0;
     final reject = double.tryParse(_rejectController.text) ?? 0.0;
-    final qa = double.tryParse(_qaController.text) ?? 0.0;
+    final qaInput = double.tryParse(_qaController.text) ?? 0.0;
+    final savedQA = qaInput * qcConstant;
 
     setState(() {
-      _calculatedTested = CalculationService.calculateTested(good: good, reject: reject, qa: qa);
+      _calculatedTested = CalculationService.calculateTested(good: good, reject: reject, qa: savedQA);
       _calculatedGross = CalculationService.calculateGross(_calculatedTested);
       _calculatedRejectionPct = CalculationService.calculateRejectionPercentage(
         reject: reject,
@@ -95,10 +108,25 @@ class _DesktopInputViewState extends State<DesktopInputView> {
 
   void _handleSave() {
     if (_formKey.currentState!.validate()) {
+      final qcConstant = Provider.of<SettingsProvider>(context, listen: false).qcConstant;
       final good = double.tryParse(_goodController.text) ?? 0.0;
       final reject = double.tryParse(_rejectController.text) ?? 0.0;
-      final qa = double.tryParse(_qaController.text) ?? 0.0;
+      final qaInput = double.tryParse(_qaController.text) ?? 0.0;
       final sample = double.tryParse(_sampleController.text) ?? 0.0;
+
+      if (good <= 0 && reject <= 0 && qaInput <= 0 && sample <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter production quantities before saving.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        _goodFocus.requestFocus();
+        return;
+      }
+
+      final savedQA = qaInput * qcConstant;
 
       final record = Production(
         id: widget.initialRecord?.id,
@@ -107,7 +135,7 @@ class _DesktopInputViewState extends State<DesktopInputView> {
         productCode: _productCode,
         good: good,
         reject: reject,
-        qa: qa,
+        qa: savedQA,
         sample: sample,
         tested: _calculatedTested,
         shift: _shift,
@@ -322,7 +350,7 @@ class _DesktopInputViewState extends State<DesktopInputView> {
       controller: controller,
       focusNode: focusNode,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, color: color),

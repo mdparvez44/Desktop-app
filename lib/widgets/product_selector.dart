@@ -2,7 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
-import '../utils/constants.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 
 class ProductSelector extends StatelessWidget {
   final String selectedProductCode;
@@ -16,11 +17,19 @@ class ProductSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final codes = AppConstants.productCodes;
-    final value = codes.contains(selectedProductCode) ? selectedProductCode : codes.first;
+    final settingsProvider = Provider.of<SettingsProvider>(context);
+    final codes = List<String>.from(settingsProvider.productCodes);
+    if (!codes.contains(selectedProductCode) && selectedProductCode.isNotEmpty) {
+      codes.add(selectedProductCode);
+    }
+
+    final value = codes.contains(selectedProductCode)
+        ? selectedProductCode
+        : (codes.isNotEmpty ? codes.first : '');
 
     return DropdownButtonFormField<String>(
-      initialValue: value,
+      key: ValueKey(value),
+      initialValue: value.isNotEmpty ? value : null,
       decoration: const InputDecoration(
         labelText: 'Product Code',
         prefixIcon: Icon(Icons.qr_code_2_outlined),

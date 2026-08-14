@@ -1,7 +1,6 @@
 /// Professional Plant & Product Code-wise Daily Production Report Screen upgraded with Monthly Report Totals and Filter Navbar.
 library;
 
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -28,7 +27,8 @@ class _ReportScreenState extends State<ReportScreen> {
   String _selectedShift = 'All Shifts';
   String _selectedPlant = 'All Plants';
   String _selectedProductCode = 'All Product Codes';
-  final TextEditingController _moreRejectionController = TextEditingController();
+  final TextEditingController _moreRejectionController =
+      TextEditingController();
 
   @override
   void dispose() {
@@ -56,27 +56,34 @@ class _ReportScreenState extends State<ReportScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['xlsx'],
+        withData: true,
       );
 
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path!;
-        final fileName = result.files.single.name;
-        final bytes = await File(filePath).readAsBytes();
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.single;
+        final fileName = file.name;
+        final bytes = file.bytes;
 
-        final importResult = await prodProvider.importExcel(bytes, fileName: fileName);
+        if (bytes != null) {
+          final importResult = await prodProvider.importExcel(
+            bytes,
+            fileName: fileName,
+          );
 
-        if (importResult.validRecords.isNotEmpty) {
-          if (context.mounted) {
-            // Automatically close/pop import dialog or modal UI if open
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
+          if (importResult.validRecords.isNotEmpty) {
+            if (context.mounted) {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Successfully imported ${importResult.validRecords.length} records.',
+                  ),
+                  backgroundColor: Colors.teal,
+                ),
+              );
             }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Successfully imported ${importResult.validRecords.length} records.'),
-                backgroundColor: Colors.teal,
-              ),
-            );
           }
         }
       }
@@ -113,7 +120,8 @@ class _ReportScreenState extends State<ReportScreen> {
     final filteredRecords = records.where((r) {
       // 1. Date Filter
       if (!_isDateRangeMode && _selectedSingleDate != null) {
-        final sameDate = r.createdAt.year == _selectedSingleDate!.year &&
+        final sameDate =
+            r.createdAt.year == _selectedSingleDate!.year &&
             r.createdAt.month == _selectedSingleDate!.month &&
             r.createdAt.day == _selectedSingleDate!.day;
         if (!sameDate) return false;
@@ -149,7 +157,8 @@ class _ReportScreenState extends State<ReportScreen> {
       }
 
       // 4. Product Code Filter
-      if (_selectedProductCode != 'All Product Codes' && _selectedProductCode.isNotEmpty) {
+      if (_selectedProductCode != 'All Product Codes' &&
+          _selectedProductCode.isNotEmpty) {
         if (r.productCode != _selectedProductCode) return false;
       }
 
@@ -169,14 +178,19 @@ class _ReportScreenState extends State<ReportScreen> {
     }).toList();
 
     // Compute Plant and Product Code-wise aggregated report from filtered records
-    final reportSummary = CalculationService.computePlantProductReport(filteredRecords);
-    final productWiseRows = CalculationService.computeProductWiseDailyReport(filteredRecords);
+    final reportSummary = CalculationService.computePlantProductReport(
+      filteredRecords,
+    );
+    final productWiseRows = CalculationService.computeProductWiseDailyReport(
+      filteredRecords,
+    );
 
     final overall = reportSummary.overallTotal;
     final iml = reportSummary.imlTotal;
     final ttk = reportSummary.ttkTotal;
 
-    final hasActiveFilters = _selectedSingleDate != null ||
+    final hasActiveFilters =
+        _selectedSingleDate != null ||
         _selectedDateRange != null ||
         _selectedShift != 'All Shifts' ||
         _selectedPlant != 'All Plants' ||
@@ -307,14 +321,19 @@ class _ReportScreenState extends State<ReportScreen> {
                     items: shiftOptions.map((s) {
                       return DropdownMenuItem(
                         value: s,
-                        child: Text('Shift: $s', style: const TextStyle(fontWeight: FontWeight.w500)),
+                        child: Text(
+                          'Shift: $s',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
                       );
                     }).toList(),
                   ),
 
                   // Plant Dropdown Filter
                   DropdownButton<String>(
-                    value: plantOptions.contains(_selectedPlant) ? _selectedPlant : 'All Plants',
+                    value: plantOptions.contains(_selectedPlant)
+                        ? _selectedPlant
+                        : 'All Plants',
                     underline: const SizedBox(),
                     onChanged: (val) {
                       if (val != null) setState(() => _selectedPlant = val);
@@ -322,8 +341,10 @@ class _ReportScreenState extends State<ReportScreen> {
                     items: plantOptions.map((p) {
                       return DropdownMenuItem(
                         value: p,
-                        child: Text(p == 'All Plants' ? 'Plant: All' : 'Plant: $p',
-                            style: const TextStyle(fontWeight: FontWeight.w500)),
+                        child: Text(
+                          p == 'All Plants' ? 'Plant: All' : 'Plant: $p',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
                       );
                     }).toList(),
                   ),
@@ -335,13 +356,19 @@ class _ReportScreenState extends State<ReportScreen> {
                         : 'All Product Codes',
                     underline: const SizedBox(),
                     onChanged: (val) {
-                      if (val != null) setState(() => _selectedProductCode = val);
+                      if (val != null) {
+                        setState(() => _selectedProductCode = val);
+                      }
                     },
                     items: productOptions.map((code) {
                       return DropdownMenuItem(
                         value: code,
-                        child: Text(code == 'All Product Codes' ? 'Product: All' : 'Product: $code',
-                            style: const TextStyle(fontWeight: FontWeight.w500)),
+                        child: Text(
+                          code == 'All Product Codes'
+                              ? 'Product: All'
+                              : 'Product: $code',
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
                       );
                     }).toList(),
                   ),
@@ -355,8 +382,13 @@ class _ReportScreenState extends State<ReportScreen> {
                       decoration: InputDecoration(
                         hintText: 'More Rej >=',
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
@@ -366,8 +398,14 @@ class _ReportScreenState extends State<ReportScreen> {
                   if (hasActiveFilters)
                     TextButton.icon(
                       onPressed: _resetFilters,
-                      icon: const Icon(Icons.clear_all_rounded, color: Colors.red),
-                      label: const Text('Reset Filters', style: TextStyle(color: Colors.red)),
+                      icon: const Icon(
+                        Icons.clear_all_rounded,
+                        color: Colors.red,
+                      ),
+                      label: const Text(
+                        'Reset Filters',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                 ],
               ),
@@ -444,12 +482,23 @@ class _ReportScreenState extends State<ReportScreen> {
                   DataRow(
                     cells: [
                       const DataCell(
-                        Text('Overall Total', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          'Overall Total',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
-                      DataCell(Text(AppFormatters.formatGross(overall.testedGross))),
-                      DataCell(Text(AppFormatters.formatGross(overall.goodGross))),
-                      DataCell(Text(AppFormatters.formatGross(overall.rejectionGross))),
-                      DataCell(Text(AppFormatters.formatGross(overall.totalQCGross))),
+                      DataCell(
+                        Text(AppFormatters.formatGross(overall.testedGross)),
+                      ),
+                      DataCell(
+                        Text(AppFormatters.formatGross(overall.goodGross)),
+                      ),
+                      DataCell(
+                        Text(AppFormatters.formatGross(overall.rejectionGross)),
+                      ),
+                      DataCell(
+                        Text(AppFormatters.formatGross(overall.totalQCGross)),
+                      ),
                       DataCell(
                         Text(
                           '${overall.rejectionPercentage.toStringAsFixed(2)}%',
@@ -462,12 +511,21 @@ class _ReportScreenState extends State<ReportScreen> {
                   DataRow(
                     cells: [
                       const DataCell(
-                        Text('IML Total (Excl. TTK)', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          'IML Total ',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
-                      DataCell(Text(AppFormatters.formatGross(iml.testedGross))),
+                      DataCell(
+                        Text(AppFormatters.formatGross(iml.testedGross)),
+                      ),
                       DataCell(Text(AppFormatters.formatGross(iml.goodGross))),
-                      DataCell(Text(AppFormatters.formatGross(iml.rejectionGross))),
-                      DataCell(Text(AppFormatters.formatGross(iml.totalQCGross))),
+                      DataCell(
+                        Text(AppFormatters.formatGross(iml.rejectionGross)),
+                      ),
+                      DataCell(
+                        Text(AppFormatters.formatGross(iml.totalQCGross)),
+                      ),
                       DataCell(
                         Text(
                           '${iml.rejectionPercentage.toStringAsFixed(2)}%',
@@ -480,12 +538,21 @@ class _ReportScreenState extends State<ReportScreen> {
                   DataRow(
                     cells: [
                       const DataCell(
-                        Text('TTK Total (Only TTK)', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          'TTK Total ',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                       ),
-                      DataCell(Text(AppFormatters.formatGross(ttk.testedGross))),
+                      DataCell(
+                        Text(AppFormatters.formatGross(ttk.testedGross)),
+                      ),
                       DataCell(Text(AppFormatters.formatGross(ttk.goodGross))),
-                      DataCell(Text(AppFormatters.formatGross(ttk.rejectionGross))),
-                      DataCell(Text(AppFormatters.formatGross(ttk.totalQCGross))),
+                      DataCell(
+                        Text(AppFormatters.formatGross(ttk.rejectionGross)),
+                      ),
+                      DataCell(
+                        Text(AppFormatters.formatGross(ttk.totalQCGross)),
+                      ),
                       DataCell(
                         Text(
                           '${ttk.rejectionPercentage.toStringAsFixed(2)}%',
@@ -518,9 +585,7 @@ class _ReportScreenState extends State<ReportScreen> {
             child: productWiseRows.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.all(32.0),
-                    child: Center(
-                      child: Text('No product code data found.'),
-                    ),
+                    child: Center(child: Text('No product code data found.')),
                   )
                 : SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -577,14 +642,26 @@ class _ReportScreenState extends State<ReportScreen> {
                             cells: [
                               DataCell(
                                 Text(
-                                  r.productCode,
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  r.displayProductCode,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                              DataCell(Text(AppFormatters.formatGross(r.testedGross))),
-                              DataCell(Text(AppFormatters.formatGross(r.goodGross))),
-                              DataCell(Text(AppFormatters.formatGross(r.rejectionGross))),
-                              DataCell(Text(AppFormatters.formatGross(r.totalQCGross))),
+                              DataCell(
+                                Text(AppFormatters.formatGross(r.testedGross)),
+                              ),
+                              DataCell(
+                                Text(AppFormatters.formatGross(r.goodGross)),
+                              ),
+                              DataCell(
+                                Text(
+                                  AppFormatters.formatGross(r.rejectionGross),
+                                ),
+                              ),
+                              DataCell(
+                                Text(AppFormatters.formatGross(r.totalQCGross)),
+                              ),
                               DataCell(
                                 Text(
                                   '${r.rejectionPercentage.toStringAsFixed(2)}%',
@@ -623,9 +700,7 @@ class _ReportScreenState extends State<ReportScreen> {
             child: reportSummary.plantGroups.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.all(32.0),
-                    child: Center(
-                      child: Text('No production data found.'),
-                    ),
+                    child: Center(child: Text('No production data found.')),
                   )
                 : SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -698,46 +773,41 @@ class _ReportScreenState extends State<ReportScreen> {
     final List<DataRow> rows = [];
 
     for (final group in summary.plantGroups) {
-      final productCodesList = group.rows
-          .map((r) => r.productCode)
-          .toSet()
-          .toList()
-        ..sort();
-      final combinedCodes = productCodesList.join(', ');
-
-      rows.add(
-        DataRow(
-          cells: [
-            DataCell(
-              Text(
-                group.plant,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            DataCell(
-              Text(
-                combinedCodes,
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-            DataCell(Text(AppFormatters.formatGross(group.testedGross))),
-            DataCell(Text(AppFormatters.formatGross(group.goodGross))),
-            DataCell(Text(AppFormatters.formatGross(group.rejectionGross))),
-            DataCell(Text(AppFormatters.formatGross(group.totalQCGross))),
-            DataCell(
-              Text(
-                '${group.rejectionPercentage.toStringAsFixed(2)}%',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: group.rejectionPercentage >= 10.0
-                      ? Colors.red
-                      : Colors.green.shade700,
+      for (final r in group.rows) {
+        rows.add(
+          DataRow(
+            cells: [
+              DataCell(
+                Text(
+                  r.plant,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
+              DataCell(
+                Text(
+                  r.productCode,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              DataCell(Text(AppFormatters.formatGross(r.testedGross))),
+              DataCell(Text(AppFormatters.formatGross(r.goodGross))),
+              DataCell(Text(AppFormatters.formatGross(r.rejectionGross))),
+              DataCell(Text(AppFormatters.formatGross(r.totalQCGross))),
+              DataCell(
+                Text(
+                  '${r.rejectionPercentage.toStringAsFixed(2)}%',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: r.rejectionPercentage >= 10.0
+                        ? Colors.red
+                        : Colors.green.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
     }
 
     // Overall Total Row

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/production_provider.dart';
+import '../providers/settings_provider.dart';
 import '../services/calculation_service.dart';
 import '../utils/formatters.dart';
 
@@ -15,9 +16,13 @@ class GrossScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final prodProvider = Provider.of<ProductionProvider>(context);
+    final settingsProvider = Provider.of<SettingsProvider>(context);
     final records = prodProvider.records;
 
-    final summary = CalculationService.computeMachineGrossReport(records);
+    final summary = CalculationService.computeMachineGrossReport(
+      records,
+      settingsProvider.machines,
+    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),

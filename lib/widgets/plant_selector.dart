@@ -2,7 +2,8 @@
 library;
 
 import 'package:flutter/material.dart';
-import '../utils/constants.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 
 class PlantSelector extends StatelessWidget {
   final String selectedPlant;
@@ -17,7 +18,11 @@ class PlantSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final plants = AppConstants.defaultPlants;
+    final settingsProvider = Provider.of<SettingsProvider>(context);
+    final plants = List<String>.from(settingsProvider.plants);
+    if (!plants.contains(selectedPlant) && selectedPlant.isNotEmpty) {
+      plants.add(selectedPlant);
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

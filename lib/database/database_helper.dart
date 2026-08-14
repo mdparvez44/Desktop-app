@@ -2,12 +2,13 @@
 library;
 
 import 'dart:async';
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../models/production.dart';
 import '../utils/natural_sort.dart';
+import 'database_init_stub.dart'
+    if (dart.library.io) 'database_init_io.dart'
+    if (dart.library.js_interop) 'database_init_web.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -22,12 +23,8 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String filePath) async {
-    // Initialize FFI for desktop (Linux / Windows)
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-
-    final appDocDir = await getApplicationDocumentsDirectory();
-    final dbPath = join(appDocDir.path, 'ET_Calculator', filePath);
+    databaseFactory = getPlatformDatabaseFactory();
+    final dbPath = await getDatabasePath(filePath);
 
     return await databaseFactory.openDatabase(
       dbPath,
